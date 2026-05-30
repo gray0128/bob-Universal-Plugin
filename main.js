@@ -77,24 +77,25 @@ function buildMessages(query, opts) {
   return messages;
 }
 
-// 流式状态管理（支持 handler 多次调用的增量模式）
-let streamState = null;
-
-function initStreamState(query) {
-  streamState = {
-    query: query,
-    fullText: '',
-    reasoningText: '',
-    finished: false
-  };
+// 流式状态直接挂在 query 对象上（避免模块级变量在 Bob 环境下的生命周期问题）
+function getStreamState(query) {
+  if (!query.__streamState) {
+    query.__streamState = {
+      fullText: '',
+      reasoningText: '',
+      finished: false
+    };
+  }
+  return query.__streamState;
 }
 
 function processSSEChunk(query, dataStr) {
-  if (!streamState || streamState.finished) return;
+  const state = getStreamState(query);
+  if (state.finished) return;
   
   if (dataStr === '[DONE]') {
-    streamState.finished = true;
-    finishStream();
+    state.finished = true;
+    finishStream(query);
     return;
   }
   
@@ -105,57 +106,50 @@ function processSSEChunk(query, dataStr) {
     let hasUpdate = false;
     
     if (delta.content) {
-      streamState.fullText += delta.content;
+      state.fullText += delta.content;
       hasUpdate = true;
     }
     
     if (delta.reasoning_content) {
-      streamState.reasoningText += delta.reasoning_content;
+      state.reasoningText += delta.reasoning_content;
       hasUpdate = true;
     }
     
     if (hasUpdate) {
-      // 实时流式推送
-      const streamResult = {
-        toParagraphs: [streamState.fullText]
-      };
-      // 注意：thinkInfo 只在最终完成时附加更稳定
-      query.onStream(streamResult);
+      query.onStream({
+        toParagraphs: [state.fullText]
+      });
     }
   } catch (e) {
-    // 忽略无法解析的行（可能是 keep-alive 或注释行）
+    // 忽略无法解析的行（keep-alive、注释等）
   }
 }
 
-function finishStream() {
-  if (!streamState) return;
+function finishStream(query) {
+  const state = getStreamState(query);
+  if (state.finished && !state.fullText && !state.reasoningText) return;
   
   const result = {
-    toParagraphs: [streamState.fullText || '（模型未返回内容）']
+    toParagraphs: [state.fullText || '（模型未返回内容）']
   };
   
-  if (streamState.reasoningText) {
+  if (state.reasoningText) {
     result.thinkInfo = {
-      content: streamState.reasoningText
+      content: state.reasoningText
     };
   }
   
-  streamState.query.onCompletion({ result });
-  streamState.finished = true;
+  query.onCompletion({ result });
+  state.finished = true;
 }
 
-// 处理流式响应（支持 Bob $http 两种行为：单次完整 / 多次增量）
+// 处理流式响应（兼容 Bob $http 的两种 chunk 下发行为）
 function handleStreamResponse(query, opts, resp) {
   const data = resp.data;
+  const state = getStreamState(query);
   
-  // 如果是第一次调用，初始化状态
-  if (!streamState) {
-    initStreamState(query);
-  }
-  
-  // data 可能是字符串（SSE 文本）或对象
   if (typeof data === 'string') {
-    // 情况 A：Bob 把 chunk 直接透传（最常见）
+    // 行为 A：Bob 透传原始 SSE 文本（最常见）
     const lines = data.split('\n');
     for (const line of lines) {
       const trimmed = line.trim();
@@ -165,25 +159,22 @@ function handleStreamResponse(query, opts, resp) {
       }
     }
   } else if (data && typeof data === 'object') {
-    // 情况 B：Bob 已经解析成对象（较少见）
+    // 行为 B：Bob 已解析为对象
     const delta = data.choices?.[0]?.delta || {};
     
     if (delta.content) {
-      streamState.fullText += delta.content;
-      query.onStream({ toParagraphs: [streamState.fullText] });
+      state.fullText += delta.content;
+      query.onStream({ toParagraphs: [state.fullText] });
     }
     if (delta.reasoning_content) {
-      streamState.reasoningText += delta.reasoning_content;
+      state.reasoningText += delta.reasoning_content;
     }
     
-    // 尝试判断是否结束
     if (data.choices?.[0]?.finish_reason) {
-      finishStream();
+      state.finished = true;
+      finishStream(query);
     }
   }
-  
-  // 注意：最终的 onCompletion 由 [DONE] 或外部 finish 触发
-  // 如果 Bob 只调用一次 handler（把全部 SSE 拼好），上面的逻辑也能正确处理
 }
 
 // 处理非流式响应
@@ -239,9 +230,6 @@ function handleNormalResponse(query, opts, resp) {
 
 // 核心翻译/处理函数
 function translate(query, completion) {
-  // 每次新请求重置流式状态
-  streamState = null;
-  
   const opts = getOptions();
   
   // 基础校验
@@ -278,7 +266,6 @@ function translate(query, completion) {
     cancelSignal: query.cancelSignal,
     handler: function(resp) {
       if (opts.stream) {
-        // 流式：resp.data 是拼接好的完整 SSE 文本
         handleStreamResponse(query, opts, resp);
       } else {
         handleNormalResponse(query, opts, resp);
