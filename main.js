@@ -371,12 +371,13 @@ function buildMessages(query, opts) {
 }
 
 // 流式状态直接挂在 query 对象上（避免模块级变量在 Bob 环境下的生命周期问题）
-function getStreamState(query) {
+function getStreamState(query, thinkingLevel) {
   if (!query.__streamState) {
     query.__streamState = {
       fullText: '',
       reasoningText: '',
-      finished: false
+      finished: false,
+      thinkingLevel: thinkingLevel || 'medium'
     };
   }
   return query.__streamState;
@@ -403,11 +404,13 @@ function processSSEChunk(query, dataStr) {
       hasUpdate = true;
     }
     
-    // 支持多种思考字段
-    const thinkingDelta = delta.reasoning_content || delta.thinking || '';
-    if (thinkingDelta) {
-      state.reasoningText += thinkingDelta;
-      hasUpdate = true;
+    // 支持多种思考字段（关闭思考时跳过）
+    if (state.thinkingLevel !== 'off') {
+      const thinkingDelta = delta.reasoning_content || delta.thinking || '';
+      if (thinkingDelta) {
+        state.reasoningText += thinkingDelta;
+        hasUpdate = true;
+      }
     }
     
     if (hasUpdate) {
@@ -459,9 +462,11 @@ function handleStreamResponse(query, opts, resp) {
       state.fullText += delta.content;
       query.onStream({ toParagraphs: [state.fullText] });
     }
-    const thinkingDelta = delta.reasoning_content || delta.thinking || '';
-    if (thinkingDelta) {
-      state.reasoningText += thinkingDelta;
+    if (state.thinkingLevel !== 'off') {
+      const thinkingDelta = delta.reasoning_content || delta.thinking || '';
+      if (thinkingDelta) {
+        state.reasoningText += thinkingDelta;
+      }
     }
     
     if (data.choices?.[0]?.finish_reason) {
@@ -507,14 +512,17 @@ function handleNormalResponse(query, opts, resp) {
   }
   
   const content = choice.message?.content || '';
-  const reasoning = extractThinkingFromResponse(opts.serviceProvider, data) || '';
   
   const result = {
     toParagraphs: [content || '（模型未返回内容）']
   };
   
-  if (reasoning) {
-    result.thinkInfo = { content: reasoning };
+  // 关闭思考时不提取 reasoning_content
+  if (opts.thinkingLevel !== 'off') {
+    const reasoning = extractThinkingFromResponse(opts.serviceProvider, data) || '';
+    if (reasoning) {
+      result.thinkInfo = { content: reasoning };
+    }
   }
   
   query.onCompletion({ result });
@@ -537,6 +545,9 @@ function translate(query, completion) {
   
   const messages = buildMessages(query, opts);
   const body = buildRequestBody(opts.serviceProvider, messages, opts);
+
+  // 初始化流式状态（传递思考等级，供下游响应处理判断）
+  getStreamState(query, opts.thinkingLevel);
   
   // 发起请求
   $http.request({
