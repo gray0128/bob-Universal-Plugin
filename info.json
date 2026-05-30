@@ -31,6 +31,9 @@
       "type": "text",
       "title": "API Base URL",
       "defaultValue": "https://api.deepseek.com/v1",
+      "textConfig": {
+        "type": "visible"
+      },
       "desc": "会根据服务提供商自动建议常用地址，也可手动填写"
     },
     {
@@ -47,6 +50,9 @@
       "type": "text",
       "title": "模型名称",
       "defaultValue": "deepseek-reasoner",
+      "textConfig": {
+        "type": "visible"
+      },
       "desc": "DeepSeek 推荐 deepseek-reasoner；Qwen 推荐 qwen3-32b 或 qwq-32b；Claude 推荐 claude-3-7-sonnet-20250219"
     },
     {
@@ -84,6 +90,9 @@
       "type": "text",
       "title": "思考预算 Tokens（高级）",
       "defaultValue": "",
+      "textConfig": {
+        "type": "visible"
+      },
       "desc": "留空则根据思考等级自动分配。仅 Claude/Gemini/Qwen 有效，格式为数字（如 4096）"
     },
     {
@@ -115,6 +124,9 @@
       "type": "text",
       "title": "Temperature",
       "defaultValue": "0.3",
+      "textConfig": {
+        "type": "visible"
+      },
       "desc": "思考模型建议保持 0.1~0.4，创意任务可提高"
     },
     {
@@ -122,6 +134,9 @@
       "type": "text",
       "title": "Max Tokens",
       "defaultValue": "4000",
+      "textConfig": {
+        "type": "visible"
+      },
       "desc": "输出最大长度，思考模型建议设置较大值"
     },
     {
