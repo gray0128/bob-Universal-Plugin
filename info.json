@@ -1,6 +1,6 @@
 {
   "identifier": "com.libowen.bob-universal-processor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "category": "translate",
   "name": "通用 AI 处理器",
   "summary": "基于自定义提示词处理任意文本（代码解释、总结、分析、转换等），支持划词与 OCR 后处理",
@@ -11,52 +11,105 @@
   "minBobVersion": "1.15.0",
   "options": [
     {
+      "identifier": "serviceProvider",
+      "type": "select",
+      "title": "服务提供商",
+      "defaultValue": "deepseek",
+      "menuValues": [
+        { "title": "DeepSeek（推荐 R1 思考模型）", "value": "deepseek" },
+        { "title": "OpenAI（含 o1/o3/o4 系列）", "value": "openai" },
+        { "title": "Claude（Anthropic 3.7/4 思考）", "value": "claude" },
+        { "title": "通义千问（Qwen3/QwQ 思考）", "value": "qwen" },
+        { "title": "Gemini（Google 2.5 思考）", "value": "gemini" },
+        { "title": "Ollama（本地模型）", "value": "ollama" },
+        { "title": "其他 OpenAI Compatible", "value": "openai-compatible" }
+      ],
+      "desc": "选择对应的大模型厂商，插件会自动适配其思考参数格式"
+    },
+    {
       "identifier": "apiUrl",
       "type": "text",
       "title": "API Base URL",
-      "defaultValue": "https://api.openai.com/v1",
-      "desc": "兼容 OpenAI 的接口地址，如 https://api.deepseek.com/v1、http://localhost:11434/v1 (Ollama)、https://api.siliconflow.cn/v1 等"
+      "defaultValue": "https://api.deepseek.com/v1",
+      "desc": "会根据服务提供商自动建议常用地址，也可手动填写"
     },
     {
       "identifier": "apiKey",
       "type": "secret",
       "title": "API Key",
-      "desc": "对应服务的 API Key。对于 Ollama 等本地服务可留空或填任意值"
+      "desc": "对应服务的 API Key。本地模型（Ollama）可留空"
     },
     {
       "identifier": "model",
       "type": "text",
       "title": "模型名称",
-      "defaultValue": "gpt-4o-mini",
-      "desc": "如 gpt-4o、claude-3-5-sonnet、deepseek-chat、qwen2.5-coder、llama3.1 等"
+      "defaultValue": "deepseek-reasoner",
+      "desc": "DeepSeek 推荐 deepseek-reasoner；Qwen 推荐 qwen3-32b 或 qwq-32b；Claude 推荐 claude-3-7-sonnet-20250219"
+    },
+    {
+      "identifier": "presetTemplate",
+      "type": "select",
+      "title": "内置处理模板",
+      "defaultValue": "code_explainer",
+      "menuValues": [
+        { "title": "代码深度解释（推荐）", "value": "code_explainer" },
+        { "title": "代码安全审计", "value": "code_security" },
+        { "title": "技术文章 / 文档提炼要点", "value": "text_summary" },
+        { "title": "生成知识卡片", "value": "knowledge_card" },
+        { "title": "代码添加高质量中文注释", "value": "add_comments" },
+        { "title": "Bug 分析与修复建议", "value": "bug_analysis" },
+        { "title": "自定义提示词（高级）", "value": "custom" }
+      ],
+      "desc": "选择内置模板后无需填写下方 System/User Prompt。选「自定义」才使用下方配置。"
+    },
+    {
+      "identifier": "thinkingLevel",
+      "type": "select",
+      "title": "思考等级",
+      "defaultValue": "medium",
+      "menuValues": [
+        { "title": "关闭思考（最快）", "value": "off" },
+        { "title": "低强度（快速响应）", "value": "low" },
+        { "title": "中等强度（推荐）", "value": "medium" },
+        { "title": "高强度（深度思考）", "value": "high" },
+        { "title": "自动（由模型决定）", "value": "auto" }
+      ],
+      "desc": "控制模型思考过程的强度。DeepSeek-R1、Qwen3、Claude 3.7、Gemini 2.5、o1/o3 等模型支持。"
+    },
+    {
+      "identifier": "thinkingBudget",
+      "type": "text",
+      "title": "思考预算 Tokens（高级）",
+      "defaultValue": "",
+      "desc": "留空则根据思考等级自动分配。仅 Claude/Gemini/Qwen 有效，格式为数字（如 4096）"
     },
     {
       "identifier": "systemPrompt",
       "type": "textarea",
-      "title": "System Prompt（系统指令）",
-      "defaultValue": "你是一位经验丰富的软件工程师和编程导师，专注于帮助开发者深入理解代码和技术概念。\n\n核心原则：\n- 始终使用简体中文回答\n- 结构化表达：先总结、再拆解、后升华\n- 重点突出学习价值和实践要点\n- 对代码要解释\"为什么这样写\"而非仅描述做了什么\n- 指出潜在风险、性能问题或改进空间\n- 必要时给出最小可运行示例\n\n保持专业、耐心、易懂的语气。",
-      "desc": "定义模型的角色和全局行为。留空则使用内置高质量默认角色。"
+      "title": "System Prompt（仅自定义模式）",
+      "defaultValue": "",
+      "desc": "仅当「内置处理模板」选择「自定义提示词」时生效"
     },
     {
       "identifier": "userPromptTemplate",
       "type": "textarea",
-      "title": "User Prompt 模板",
-      "defaultValue": "请深入分析并解释以下内容（代码/文本/文档均可），帮助我真正理解和学习：\n\n```\n$text\n```\n\n请严格按照以下结构用中文输出：\n\n## 核心目的\n用一句话说明这段内容要解决什么问题。\n\n## 关键逻辑拆解\n按执行顺序或模块结构，解释最重要的部分（重点说清楚“为什么”）。\n\n## 设计亮点与权衡\n值得学习的点、作者的意图、可能的替代方案。\n\n## 潜在问题与改进空间\nbug、安全隐患、性能瓶颈、可维护性问题、优化建议。\n\n## 学习要点与下一步\n提炼 2-4 个最有价值的知识点，并建议我接下来可以深入的方向。",
-      "desc": "用户消息模板。必须包含 $text 占位符，插件会自动替换为用户选中的文本或 OCR 结果。支持 $from、$detectFrom 等变量。"
+      "title": "User Prompt 模板（仅自定义模式）",
+      "defaultValue": "",
+      "desc": "仅当「内置处理模板」选择「自定义提示词」时生效。必须包含 $text 占位符"
     },
     {
       "identifier": "temperature",
       "type": "text",
       "title": "Temperature",
       "defaultValue": "0.3",
-      "desc": "控制输出随机性。代码分析建议 0.1-0.4，创意任务可设 0.7-1.0"
+      "desc": "思考模型建议保持 0.1~0.4，创意任务可提高"
     },
     {
       "identifier": "maxTokens",
       "type": "text",
       "title": "Max Tokens",
-      "defaultValue": "2000",
-      "desc": "单次回复的最大 token 数，根据模型上下文长度调整"
+      "defaultValue": "4000",
+      "desc": "输出最大长度，思考模型建议设置较大值"
     },
     {
       "identifier": "stream",
@@ -66,8 +119,7 @@
       "menuValues": [
         { "title": "启用（推荐）", "value": "enable" },
         { "title": "禁用", "value": "disable" }
-      ],
-      "desc": "启用后可实时看到模型思考过程"
+      ]
     }
   ]
 }

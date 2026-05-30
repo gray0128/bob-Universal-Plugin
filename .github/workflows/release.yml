@@ -1,0 +1,83 @@
+name: Release Bob Plugin
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. v0.2.0)'
+        required: false
+        default: ''
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "filename=bob-universal-processor-$VERSION.bobplugin" >> $GITHUB_OUTPUT
+          echo "Using version: $VERSION"
+
+      - name: Prepare plugin package
+        run: |
+          mkdir -p dist
+          # 复制插件必需文件
+          cp info.json main.js LICENSE README.md dist/
+          # 复制 scripts 目录（可选）
+          if [ -d scripts ]; then
+            cp -r scripts dist/
+          fi
+
+      - name: Package as .bobplugin
+        run: |
+          cd dist
+          # Bob 插件本质是 zip 包，改后缀名
+          zip -r "../${{ steps.version.outputs.filename }}" ./*
+          cd ..
+          ls -lh "${{ steps.version.outputs.filename }}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: "通用 AI 处理器 ${{ steps.version.outputs.version }}"
+          draft: false
+          prerelease: false
+          files: ${{ steps.version.outputs.filename }}
+          generate_release_notes: true
+          body: |
+            ## 通用 AI 处理器 ${{ steps.version.outputs.version }}
+
+            ### 安装方式
+            1. 下载下方 `.bobplugin` 文件
+            2. 双击安装，或拖入 Bob 插件管理窗口
+            3. 在 Bob 设置 → 服务中添加「通用 AI 处理器」
+
+            ### 更新日志
+            详见 [CHANGELOG](https://github.com/gray0128/bob-Universal-Plugin/releases) 或仓库 README
+
+            > **注意**：首次使用请在插件配置中填写 API Base URL、Key 和模型名称。
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bob-plugin-package
+          path: ${{ steps.version.outputs.filename }}
+          retention-days: 30

@@ -1,9 +1,297 @@
-// Bob 通用 AI 处理器插件
-// 支持自定义 System Prompt + User Prompt 模板，对选中文本或 OCR 结果进行任意处理
+// Bob 通用 AI 处理器插件 v0.2.0
+// 支持多厂商 + 内置模板 + 思考等级控制
 
 function supportLanguages() {
-  // 返回支持的语言，这里返回常见语言即可，实际不强制限制
   return ['auto', 'zh-Hans', 'zh-Hant', 'en', 'ja', 'ko', 'fr', 'de', 'es', 'ru'];
+}
+
+// ==================== 内置模板定义 ====================
+const PRESET_TEMPLATES = {
+  code_explainer: {
+    name: "代码深度解释",
+    system: `你是一位经验丰富的软件工程师和编程导师，专注于帮助开发者深入理解代码和技术概念。
+
+核心原则：
+- 始终使用简体中文回答
+- 结构化表达：先总结、再拆解、后升华
+- 重点突出学习价值和实践要点
+- 对代码要解释“为什么这样写”而非仅描述做了什么
+- 指出潜在风险、性能问题或改进空间
+- 必要时给出最小可运行示例
+
+保持专业、耐心、易懂的语气。`,
+    user: `请深入分析并解释以下内容（代码/文本/文档均可），帮助我真正理解和学习：
+
+\`\`\`
+$text
+\`\`\`
+
+请严格按照以下结构用中文输出：
+
+## 核心目的
+用一句话说明这段内容要解决什么问题。
+
+## 关键逻辑拆解
+按执行顺序或模块结构，解释最重要的部分（重点说清楚“为什么”）。
+
+## 设计亮点与权衡
+值得学习的点、作者的意图、可能的替代方案。
+
+## 潜在问题与改进空间
+bug、安全隐患、性能瓶颈、可维护性问题、优化建议。
+
+## 学习要点与下一步
+提炼 2-4 个最有价值的知识点，并建议我接下来可以深入的方向。`
+  },
+
+  code_security: {
+    name: "代码安全审计",
+    system: `你是一名资深应用安全工程师，精通 OWASP Top 10、CWE、各种语言的常见漏洞模式。请以严谨、安全工程师的视角进行代码审查。`,
+    user: `请对以下代码进行全面安全审计，重点关注注入、权限、敏感信息、业务逻辑漏洞等问题：
+
+\`\`\`
+$text
+\`\`\`
+
+请按以下结构输出（用中文）：
+## 高危漏洞
+## 中危问题
+## 低危/最佳实践建议
+## 修复代码示例（关键部分）`
+  },
+
+  text_summary: {
+    name: "技术文章提炼",
+    system: `你是一位优秀的技术编辑，擅长把复杂的技术文章提炼成结构清晰、便于吸收的要点。`,
+    user: `请阅读以下技术内容，提炼出核心知识点和可立即应用的实践建议：
+
+$text
+
+输出格式：
+## 核心概念（3-6 点）
+## 关键洞见
+## 立即可做的行动项
+## 可能踩的坑 / 注意事项`
+  },
+
+  knowledge_card: {
+    name: "知识卡片生成",
+    system: `你擅长把技术知识转化为适合 Anki / 笔记软件的结构化知识卡片。`,
+    user: `请基于以下内容，生成 3-8 张高质量知识卡片（适合长期记忆）：
+
+$text
+
+每张卡片格式：
+**正面（问题/概念）**：
+**背面（答案/解释）**：`
+  },
+
+  add_comments: {
+    name: "添加高质量注释",
+    system: `你是一位代码可维护性专家，擅长为代码添加解释“为什么”的高质量中文注释。`,
+    user: `请为以下代码添加高质量中文注释，重点解释设计意图、关键算法和边界情况。保持代码可直接运行，只增加注释：
+
+\`\`\`
+$text
+\`\`\`
+
+只返回带注释的完整代码，不要额外解释。`
+  },
+
+  bug_analysis: {
+    name: "Bug 分析与修复",
+    system: `你是一位调试高手，擅长快速定位问题根因并给出最小修复方案。`,
+    user: `以下是代码及相关描述，请帮我分析可能存在的 Bug 并给出修复建议：
+
+\`\`\`
+$text
+\`\`\`
+
+请输出：
+## 问题根因分析
+## 复现条件（如果可推断）
+## 修复方案（推荐）
+## 修复后代码（关键部分）`
+  }
+};
+
+// 获取当前使用的模板
+function getActiveTemplate(opts) {
+  const preset = opts.presetTemplate || 'code_explainer';
+  
+  if (preset === 'custom') {
+    return {
+      system: opts.systemPrompt || '',
+      user: opts.userPromptTemplate || '请处理以下内容：\n\n$text'
+    };
+  }
+  
+  const template = PRESET_TEMPLATES[preset];
+  if (template) {
+    return {
+      system: template.system,
+      user: template.user
+    };
+  }
+  
+  // 兜底
+  return PRESET_TEMPLATES.code_explainer;
+}
+
+// ==================== 服务商与思考参数适配 ====================
+
+// 获取不同服务商的推荐配置
+function getProviderDefaults(provider) {
+  const map = {
+    deepseek: {
+      apiUrl: 'https://api.deepseek.com/v1',
+      recommendedModels: ['deepseek-reasoner', 'deepseek-chat']
+    },
+    openai: {
+      apiUrl: 'https://api.openai.com/v1',
+      recommendedModels: ['o3-mini', 'o1', 'gpt-4o']
+    },
+    claude: {
+      apiUrl: 'https://api.anthropic.com/v1',
+      recommendedModels: ['claude-3-7-sonnet-20250219', 'claude-sonnet-4-20250514']
+    },
+    qwen: {
+      apiUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      recommendedModels: ['qwen3-32b', 'qwq-32b', 'qwen2.5-coder-32b-instruct']
+    },
+    gemini: {
+      apiUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      recommendedModels: ['gemini-2.5-pro', 'gemini-2.5-flash']
+    },
+    ollama: {
+      apiUrl: 'http://localhost:11434/v1',
+      recommendedModels: ['qwen3:32b', 'deepseek-r1:32b']
+    },
+    'openai-compatible': {
+      apiUrl: '',
+      recommendedModels: []
+    }
+  };
+  return map[provider] || map['openai-compatible'];
+}
+
+// 根据思考等级构建不同厂商的参数
+function buildThinkingParams(provider, level, budgetTokens) {
+  if (!level || level === 'off') {
+    return {};
+  }
+
+  const effortMap = { low: 'low', medium: 'medium', high: 'high', auto: 'auto' };
+
+  switch (provider) {
+    case 'openai':
+      // OpenAI o1/o3/o4 系列
+      return {
+        reasoning_effort: effortMap[level] || 'medium'
+      };
+
+    case 'deepseek':
+      // DeepSeek Reasoner 模型本身就会思考，不需要额外参数
+      return {};
+
+    case 'claude':
+      // Claude 3.7+ Thinking
+      const budget = budgetTokens || (level === 'high' ? 16000 : level === 'low' ? 2048 : 4096);
+      return {
+        thinking: {
+          type: 'enabled',
+          budget_tokens: Math.min(Math.max(budget, 1024), 64000)
+        }
+      };
+
+    case 'qwen':
+      // Qwen3 / QwQ 思考模式
+      const qwenBudget = budgetTokens || (level === 'high' ? 8192 : level === 'low' ? 2048 : 4096);
+      return {
+        enable_thinking: true,
+        thinking_budget: qwenBudget
+      };
+
+    case 'gemini':
+      // Gemini 2.5 Thinking
+      const geminiBudget = budgetTokens || (level === 'high' ? 24576 : level === 'low' ? 1024 : 8192);
+      return {
+        thinkingConfig: {
+          thinkingBudget: geminiBudget,
+          includeThoughts: true
+        }
+      };
+
+    default:
+      // 其他兼容接口尽量尝试 OpenAI 风格
+      if (level !== 'auto') {
+        return { reasoning_effort: effortMap[level] || 'medium' };
+      }
+      return {};
+  }
+}
+
+// 构建最终请求体
+function buildRequestBody(provider, messages, opts) {
+  const body = {
+    model: opts.model,
+    messages: messages,
+    temperature: opts.temperature,
+    max_tokens: opts.maxTokens,
+    stream: opts.stream
+  };
+
+  // 合并思考参数
+  const thinkingParams = buildThinkingParams(
+    provider,
+    opts.thinkingLevel,
+    opts.thinkingBudget ? parseInt(opts.thinkingBudget) : null
+  );
+
+  Object.assign(body, thinkingParams);
+
+  // 特殊处理：Claude 使用不同的字段名（messages 里不能有 system？Anthropic 官方格式不同）
+  // 这里我们使用 OpenAI Compatible 格式，大部分代理都支持
+  if (provider === 'claude') {
+    // 部分 Claude 代理需要把 system 单独拎出来
+    // 但为了简化，这里先保持 messages 格式（大多数中转都兼容）
+  }
+
+  return body;
+}
+
+// 从响应中提取思考内容（不同厂商字段不同）
+function extractThinkingFromResponse(provider, data) {
+  const choice = data.choices?.[0];
+  if (!choice) return null;
+
+  // 1. 标准 OpenAI / DeepSeek 格式
+  if (choice.message?.reasoning_content) {
+    return choice.message.reasoning_content;
+  }
+
+  // 2. 流式中的 delta
+  if (choice.delta?.reasoning_content) {
+    return choice.delta.reasoning_content;
+  }
+
+  // 3. Gemini 格式（通过 OpenAI 兼容层）
+  if (choice.message?.thinking || data.candidates?.[0]?.content?.parts) {
+    // Gemini 兼容层通常会把思考放在特定字段
+    return choice.message?.thinking || null;
+  }
+
+  // 4. Qwen 部分实现会把思考放在 reasoning_content
+  if (choice.message?.reasoning_content) {
+    return choice.message.reasoning_content;
+  }
+
+  // 5. Claude（通过中转）
+  if (choice.message?.thinking) {
+    return choice.message.thinking;
+  }
+
+  return null;
 }
 
 // 变量替换工具
@@ -29,16 +317,25 @@ function replaceVariables(template, query) {
   return result;
 }
 
-// 获取用户配置
+// 获取用户配置（v0.2.0 新版）
 function getOptions() {
+  const provider = $option.serviceProvider || 'deepseek';
+  const defaults = getProviderDefaults(provider);
+
+  let apiUrl = ($option.apiUrl || defaults.apiUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
+
   return {
-    apiUrl: ($option.apiUrl || 'https://api.openai.com/v1').replace(/\/$/, ''),
+    serviceProvider: provider,
+    apiUrl: apiUrl,
     apiKey: $option.apiKey || '',
-    model: $option.model || 'gpt-4o-mini',
+    model: $option.model || 'deepseek-reasoner',
+    presetTemplate: $option.presetTemplate || 'code_explainer',
+    thinkingLevel: $option.thinkingLevel || 'medium',
+    thinkingBudget: $option.thinkingBudget || '',
     systemPrompt: $option.systemPrompt || '',
-    userPromptTemplate: $option.userPromptTemplate || '请处理以下内容：\n\n$text',
+    userPromptTemplate: $option.userPromptTemplate || '',
     temperature: parseFloat($option.temperature || '0.3'),
-    maxTokens: parseInt($option.maxTokens || '2000'),
+    maxTokens: parseInt($option.maxTokens || '4000'),
     stream: ($option.stream || 'enable') === 'enable'
   };
 }
@@ -56,23 +353,19 @@ const DEFAULT_SYSTEM_PROMPT = `你是一位经验丰富的软件工程师和编�
 
 保持专业、耐心、易懂的语气。`;
 
-// 构建请求 messages
+// 构建请求 messages（使用内置模板或自定义）
 function buildMessages(query, opts) {
+  const template = getActiveTemplate(opts);
+  
   const messages = [];
   
-  // System 消息
-  const systemContent = opts.systemPrompt.trim() || DEFAULT_SYSTEM_PROMPT;
-  messages.push({
-    role: 'system',
-    content: systemContent
-  });
+  const systemContent = (template.system || '').trim();
+  if (systemContent) {
+    messages.push({ role: 'system', content: systemContent });
+  }
   
-  // User 消息（使用模板 + 变量替换）
-  const userContent = replaceVariables(opts.userPromptTemplate, query);
-  messages.push({
-    role: 'user',
-    content: userContent
-  });
+  const userContent = replaceVariables(template.user, query);
+  messages.push({ role: 'user', content: userContent });
   
   return messages;
 }
@@ -110,8 +403,10 @@ function processSSEChunk(query, dataStr) {
       hasUpdate = true;
     }
     
-    if (delta.reasoning_content) {
-      state.reasoningText += delta.reasoning_content;
+    // 支持多种思考字段
+    const thinkingDelta = delta.reasoning_content || delta.thinking || '';
+    if (thinkingDelta) {
+      state.reasoningText += thinkingDelta;
       hasUpdate = true;
     }
     
@@ -134,9 +429,7 @@ function finishStream(query) {
   };
   
   if (state.reasoningText) {
-    result.thinkInfo = {
-      content: state.reasoningText
-    };
+    result.thinkInfo = { content: state.reasoningText };
   }
   
   query.onCompletion({ result });
@@ -166,8 +459,9 @@ function handleStreamResponse(query, opts, resp) {
       state.fullText += delta.content;
       query.onStream({ toParagraphs: [state.fullText] });
     }
-    if (delta.reasoning_content) {
-      state.reasoningText += delta.reasoning_content;
+    const thinkingDelta = delta.reasoning_content || delta.thinking || '';
+    if (thinkingDelta) {
+      state.reasoningText += thinkingDelta;
     }
     
     if (data.choices?.[0]?.finish_reason) {
@@ -213,22 +507,20 @@ function handleNormalResponse(query, opts, resp) {
   }
   
   const content = choice.message?.content || '';
-  const reasoning = choice.message?.reasoning_content || '';
+  const reasoning = extractThinkingFromResponse(opts.serviceProvider, data) || '';
   
   const result = {
     toParagraphs: [content || '（模型未返回内容）']
   };
   
   if (reasoning) {
-    result.thinkInfo = {
-      content: reasoning
-    };
+    result.thinkInfo = { content: reasoning };
   }
   
   query.onCompletion({ result });
 }
 
-// 核心翻译/处理函数
+// 核心翻译/处理函数（v0.2.0 重构）
 function translate(query, completion) {
   const opts = getOptions();
   
@@ -237,22 +529,14 @@ function translate(query, completion) {
     query.onCompletion({
       error: {
         type: 'param',
-        message: '请在插件配置中填写模型名称',
-        addition: '例如：gpt-4o-mini、deepseek-chat、qwen2.5-coder:7b'
+        message: '请在插件配置中填写模型名称'
       }
     });
     return;
   }
   
-  // 构建请求体
   const messages = buildMessages(query, opts);
-  const body = {
-    model: opts.model,
-    messages: messages,
-    temperature: opts.temperature,
-    max_tokens: opts.maxTokens,
-    stream: opts.stream
-  };
+  const body = buildRequestBody(opts.serviceProvider, messages, opts);
   
   // 发起请求
   $http.request({
@@ -295,6 +579,14 @@ function pluginValidate(completion) {
     { role: 'user', content: 'Reply with exactly the word: OK' }
   ];
   
+  const testBody = buildRequestBody(opts.serviceProvider, testMessages, {
+    model: opts.model,
+    temperature: 0,
+    maxTokens: 20,
+    stream: false,
+    thinkingLevel: 'off'
+  });
+  
   $http.request({
     method: 'POST',
     url: opts.apiUrl + '/chat/completions',
@@ -302,13 +594,7 @@ function pluginValidate(completion) {
       'Content-Type': 'application/json',
       ...(opts.apiKey ? { 'Authorization': 'Bearer ' + opts.apiKey } : {})
     },
-    body: {
-      model: opts.model,
-      messages: testMessages,
-      max_tokens: 10,
-      temperature: 0,
-      stream: false
-    },
+    body: testBody,
     handler: function(resp) {
       if (resp.error) {
         completion({

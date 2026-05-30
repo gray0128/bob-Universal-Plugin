@@ -4,40 +4,49 @@
 
 支持**划词处理**和**OCR 后处理**，与 Bob 原生快捷键工作流完全兼容。
 
-**版本**：v0.1.0  
-**更新时间**：2026-05-30 10:45:00  
+**版本**：v0.2.0  
+**更新时间**：2026-05-30 11:20:00  
 **仓库**：https://github.com/gray0128/bob-Universal-Plugin
 
 ---
 
-## 核心能力
+## 核心能力（v0.2.0）
 
-- 完全自定义 System Prompt + User Prompt 模板
-- 支持 OpenAI、DeepSeek、Claude、Ollama、硅基流动、火山方舟等所有兼容接口
-- 支持流式输出 + Reasoning 模型思考过程显示（thinkInfo）
-- 内置针对**代码学习**优化的默认提示词
-- 变量替换支持：`$text`（核心）、`$from`、`$detectFrom` 等
-- 与 Bob 截图 OCR 快捷键无缝配合，实现"截图 → 自动解释"一条龙
+- **6 个高质量内置模板**：代码解释、安全审计、文章提炼、知识卡片、加注释、Bug 分析（可一键选择）
+- **原生支持主流思考模型**：
+  - DeepSeek-R1 / Reasoner
+  - Qwen3 / QwQ
+  - Claude 3.7/4 Thinking
+  - Gemini 2.5 Thinking
+  - OpenAI o1/o3/o4 系列
+- **思考等级控制**：关闭 / 低 / 中 / 高 / 自动（自动适配各厂商参数）
+- 支持 OpenAI、DeepSeek、Claude、Qwen、Gemini、Ollama 等几乎所有兼容接口
+- 流式输出 + 思考过程完整显示（thinkInfo）
+- 与 Bob 截图 OCR 快捷键无缝配合
 
 ---
 
-## 快速开始
+## 快速开始（v0.2.0 推荐配置）
 
-### 1. 安装
+### 推荐配置（DeepSeek R1 - 最强思考体验）
 
-1. 下载本插件（打包为 `.bobplugin` 后双击安装，或开发时直接把文件夹拖入 Bob 插件目录）
-2. Bob 设置 → 服务 → 添加服务 → 选择「通用 AI 处理器」
+| 配置项         | 推荐值                          | 说明 |
+|----------------|----------------------------------|------|
+| 服务提供商     | DeepSeek                        | 自动适配思考参数 |
+| API Base URL   | `https://api.deepseek.com/v1`   | - |
+| API Key        | `sk-xxxx`                       | - |
+| 模型名称       | `deepseek-reasoner`             | 深度思考模型 |
+| 内置处理模板   | 代码深度解释（推荐）            | - |
+| 思考等级       | 中等强度                        | 可根据需要调高/低 |
 
-### 2. 基础配置（最低可用）
+### 其他优秀组合
 
-| 配置项          | 示例值                              | 说明 |
-|-----------------|-------------------------------------|------|
-| API Base URL   | `https://api.deepseek.com/v1`      | 必填，Ollama 填 `http://localhost:11434/v1` |
-| API Key        | `sk-xxxx`                          | 本地模型可留空 |
-| 模型名称       | `deepseek-chat`                    | 推荐 `deepseek-chat` / `qwen2.5-coder` / `gpt-4o-mini` |
-| User Prompt 模板 | （见下方默认值）                   | **必须包含 `$text`** |
+- **Qwen3 思考**：服务商选「通义千问」，模型填 `qwen3-32b` 或 `qwq-32b`
+- **Claude 深度思考**：服务商选「Claude」，模型填 `claude-3-7-sonnet-20250219`
+- **Gemini 2.5**：服务商选「Gemini」，模型填 `gemini-2.5-pro`
+- **本地模型**：服务商选「Ollama」，URL 填 `http://localhost:11434/v1`
 
-配置完成后即可使用：选中代码 → 选择本服务 → 获得结构化解释。
+配置完成后即可使用。
 
 ---
 
@@ -175,7 +184,14 @@ Bob 支持「截图后自动调用某个翻译服务」：
 
 ## 变更历史
 
-- **2026-05-30 v0.1.0**：初始发布。支持完全自定义 System/User Prompt、流式输出、Reasoning 模型思考过程显示（thinkInfo）、与 Bob 划词和 OCR 快捷键无缝集成。强化流式状态管理，适配 Bob JavaScriptCore 环境。
+- **2026-05-30 v0.2.0**：
+  - 新增 6 个高质量内置处理模板（可直接在设置中选择，无需手写 prompt）
+  - 新增思考等级控制（关闭/低/中/高/自动），原生适配 DeepSeek-R1、Qwen3、Claude 3.7、Gemini 2.5、OpenAI o 系列
+  - 新增服务提供商选择，自动推荐常用地址和模型
+  - 新增 GitHub Actions 自动打包 Release
+  - 大幅重构请求构建与响应解析逻辑
+
+- **2026-05-30 v0.1.0**：初始发布。支持完全自定义 System/User Prompt、流式输出、Reasoning 模型思考过程显示（thinkInfo）。强化流式状态管理。
 - **2026-04-22**：项目初始化。
 
 ---
