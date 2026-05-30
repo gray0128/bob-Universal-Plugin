@@ -177,25 +177,55 @@ function getProviderDefaults(provider) {
 
 // 根据思考等级构建不同厂商的参数
 function buildThinkingParams(provider, level, budgetTokens) {
-  if (!level || level === 'off') {
-    return {};
+  // 关闭思考：显式发送 disable 参数，避免模型默认开启
+  if (level === 'off') {
+    switch (provider) {
+      case 'deepseek':
+        // DeepSeek 官方文档：thinking.type 默认 enabled，必须显式 disabled
+        return { thinking: { type: 'disabled' } };
+      case 'claude':
+        return { thinking: { type: 'disabled' } };
+      case 'qwen':
+        return { enable_thinking: false };
+      case 'gemini':
+        return { thinkingConfig: { includeThoughts: false } };
+      default:
+        // OpenAI / openai-compatible：不发送 reasoning_effort 即关闭
+        return {};
+    }
   }
 
-  const effortMap = { low: 'low', medium: 'medium', high: 'high', auto: 'auto' };
+  if (!level || level === 'auto') {
+    // auto 模式：开启思考但不指定强度，由模型决定
+    switch (provider) {
+      case 'deepseek':
+        return { thinking: { type: 'enabled' } };
+      case 'claude':
+        return { thinking: { type: 'enabled' } };
+      case 'qwen':
+        return { enable_thinking: true };
+      case 'gemini':
+        return { thinkingConfig: { includeThoughts: true } };
+      default:
+        return {};
+    }
+  }
 
+  // 明确指定思考等级
   switch (provider) {
     case 'openai':
-      // OpenAI o1/o3/o4 系列
-      return {
-        reasoning_effort: effortMap[level] || 'medium'
-      };
+      // OpenAI o1/o3/o4 系列：reasoning_effort = low/medium/high
+      return { reasoning_effort: level };
 
     case 'deepseek':
-      // DeepSeek Reasoner 模型本身就会思考，不需要额外参数
-      return {};
+      // DeepSeek 官方：low/medium → high，high → max
+      if (level === 'high') {
+        return { thinking: { type: 'enabled' }, reasoning_effort: 'max' };
+      }
+      return { thinking: { type: 'enabled' }, reasoning_effort: 'high' };
 
     case 'claude':
-      // Claude 3.7+ Thinking
+      // Claude 3.7+ Thinking：用 budget_tokens 控制深度
       const budget = budgetTokens || (level === 'high' ? 16000 : level === 'low' ? 2048 : 4096);
       return {
         thinking: {
@@ -205,7 +235,7 @@ function buildThinkingParams(provider, level, budgetTokens) {
       };
 
     case 'qwen':
-      // Qwen3 / QwQ 思考模式
+      // Qwen3 / QwQ：用 thinking_budget 控制深度
       const qwenBudget = budgetTokens || (level === 'high' ? 8192 : level === 'low' ? 2048 : 4096);
       return {
         enable_thinking: true,
@@ -213,7 +243,7 @@ function buildThinkingParams(provider, level, budgetTokens) {
       };
 
     case 'gemini':
-      // Gemini 2.5 Thinking
+      // Gemini 2.5：用 thinkingBudget 控制深度
       const geminiBudget = budgetTokens || (level === 'high' ? 24576 : level === 'low' ? 1024 : 8192);
       return {
         thinkingConfig: {
@@ -223,11 +253,8 @@ function buildThinkingParams(provider, level, budgetTokens) {
       };
 
     default:
-      // 其他兼容接口尽量尝试 OpenAI 风格
-      if (level !== 'auto') {
-        return { reasoning_effort: effortMap[level] || 'medium' };
-      }
-      return {};
+      // 其他兼容接口尝试 OpenAI 风格
+      return { reasoning_effort: level };
   }
 }
 
